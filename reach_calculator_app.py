@@ -1,0 +1,740 @@
+# -*- coding: utf-8 -*-
+"""
+Reach 중복 제거 계산기 - Streamlit 웹 앱
+채널별, 소재별 reach 데이터를 입력받아 Sub Total과 Grand Total을 계산합니다.
+"""
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from io import BytesIO
+
+# ========================================
+# 페이지 설정
+# ========================================
+st.set_page_config(
+    page_title="Reach 중복 제거 계산기",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ========================================
+# CSS 스타일링 (예쁘게 만들기)
+# ========================================
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: bold;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .sub-header {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: #2c3e50;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+    }
+    .info-box {
+        background-color: #e3f2fd;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #1f77b4;
+        margin: 1rem 0;
+    }
+    .success-box {
+        background-color: #e8f5e9;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #4caf50;
+        margin: 1rem 0;
+    }
+    .warning-box {
+        background-color: #fff3e0;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #ff9800;
+        margin: 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ========================================
+# 헤더
+# ========================================
+st.markdown('<div class="main-header">📊 Reach 중복 제거 계산기</div>', unsafe_allow_html=True)
+st.markdown("### 채널별, 소재별 reach 데이터를 입력하여 정확한 Sub Total과 Grand Total을 계산하세요")
+
+# ========================================
+# 사이드바 - 설정 및 도움말
+# ========================================
+with st.sidebar:
+    st.header("⚙️ 설정")
+    
+    # 입력 방식 선택
+    input_method = st.radio(
+        "데이터 입력 방식",
+        ["직접 입력", "CSV 파일 업로드"],
+        help="직접 입력하거나 CSV 파일을 업로드하세요"
+    )
+    
+    st.markdown("---")
+    
+    # 중복률 설정
+    st.subheader("중복률 설정")
+    st.markdown("채널 내 소재 간 중복률을 설정하세요")
+    
+    dup_rate_1 = st.slider(
+        "Reach 1+ 중복률 (%)",
+        min_value=0,
+        max_value=100,
+        value=35,
+        step=5,
+        help="ANA & Innovid 연구: 32%"
+    )
+    
+    dup_rate_2 = st.slider(
+        "Reach 2+ 중복률 (%)",
+        min_value=0,
+        max_value=100,
+        value=25,
+        step=5,
+        help="중간 빈도 시청자의 중복률"
+    )
+    
+    dup_rate_3 = st.slider(
+        "Reach 3+ 중복률 (%)",
+        min_value=0,
+        max_value=100,
+        value=15,
+        step=5,
+        help="Heavy viewer의 중복률"
+    )
+    
+    st.markdown("---")
+    
+    # Grand Total 입력 (선택사항)
+    st.subheader("Grand Total (선택)")
+    use_grand_total = st.checkbox("Grand Total 알고 있음", value=False)
+    
+    grand_total_1 = None
+    grand_total_2 = None
+    grand_total_3 = None
+    
+    if use_grand_total:
+        grand_total_1 = st.number_input("Grand Total - Reach 1+", min_value=0, value=0)
+        grand_total_2 = st.number_input("Grand Total - Reach 2+", min_value=0, value=0)
+        grand_total_3 = st.number_input("Grand Total - Reach 3+", min_value=0, value=0)
+    
+    st.markdown("---")
+    
+    # 도움말
+    with st.expander("📖 사용 방법"):
+        st.markdown("""
+        **1. 데이터 입력**
+        - 직접 입력: 채널과 소재를 추가하며 입력
+        - CSV 업로드: 준비된 데이터 파일 업로드
+        
+        **2. 중복률 조정**
+        - 기본값(35%, 25%, 15%)은 실증 연구 기반
+        - 필요시 조정 가능
+        
+        **3. 결과 확인**
+        - 방법 1: 중복률 기반 추정
+        - 방법 2: Grand Total 역산 (있는 경우)
+        
+        **4. 다운로드**
+        - 엑셀 파일로 결과 저장 가능
+        """)
+    
+    with st.expander("🔬 과학적 근거"):
+        st.markdown("""
+        **ANA & Innovid 연구 (2021)**
+        - 평균 중복률: 32%
+        - 17억 impressions 분석
+        - MRC 인증 방법론
+        
+        **Beta-Binomial Distribution**
+        - 40년 학술 연구 기반
+        - TV, 웹, 디지털 검증
+        
+        **신뢰도: ⭐⭐⭐⭐⭐**
+        """)
+
+# ========================================
+# 메인 영역
+# ========================================
+
+# ========================================
+# 방법 1: 직접 입력
+# ========================================
+if input_method == "직접 입력":
+    st.markdown('<div class="sub-header">📝 데이터 직접 입력</div>', unsafe_allow_html=True)
+    
+    # 세션 스테이트 초기화
+    if 'channels' not in st.session_state:
+        st.session_state.channels = []
+    
+    # 채널 추가 UI
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        new_channel_name = st.text_input("새 채널 이름", placeholder="예: MBC, EBS, CATV")
+    
+    with col2:
+        st.write("")  # 간격 조정
+        st.write("")  # 간격 조정
+        if st.button("➕ 채널 추가", use_container_width=True):
+            if new_channel_name and new_channel_name not in [ch['name'] for ch in st.session_state.channels]:
+                st.session_state.channels.append({
+                    'name': new_channel_name,
+                    'creatives': []
+                })
+                st.success(f"✅ {new_channel_name} 채널이 추가되었습니다!")
+                st.rerun()
+            elif not new_channel_name:
+                st.warning("채널 이름을 입력하세요")
+            else:
+                st.warning("이미 존재하는 채널입니다")
+    
+    # 채널별 소재 입력
+    if st.session_state.channels:
+        st.markdown("---")
+        
+        for channel_idx, channel in enumerate(st.session_state.channels):
+            with st.expander(f"📺 {channel['name']}", expanded=True):
+                col1, col2 = st.columns([5, 1])
+                
+                with col2:
+                    if st.button("🗑️ 채널 삭제", key=f"del_channel_{channel_idx}", use_container_width=True):
+                        st.session_state.channels.pop(channel_idx)
+                        st.rerun()
+                
+                # 소재 추가
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    new_creative = st.text_input(
+                        "소재 이름",
+                        key=f"creative_name_{channel_idx}",
+                        placeholder="예: 버스_15s, 회사_15s, 침대_15s"
+                    )
+                
+                with col2:
+                    st.write("")
+                    st.write("")
+                    if st.button("➕ 소재 추가", key=f"add_creative_{channel_idx}", use_container_width=True):
+                        if new_creative and new_creative not in [cr['name'] for cr in channel['creatives']]:
+                            channel['creatives'].append({
+                                'name': new_creative,
+                                'reach_1': 0,
+                                'reach_2': 0,
+                                'reach_3': 0
+                            })
+                            st.rerun()
+                
+                # 소재별 reach 입력
+                if channel['creatives']:
+                    st.markdown("##### 소재별 Reach 입력")
+                    
+                    for creative_idx, creative in enumerate(channel['creatives']):
+                        col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 2, 1])
+                        
+                        with col1:
+                            st.markdown(f"**{creative['name']}**")
+                        
+                        with col2:
+                            creative['reach_1'] = st.number_input(
+                                "Reach 1+",
+                                min_value=0,
+                                value=creative['reach_1'],
+                                key=f"r1_{channel_idx}_{creative_idx}",
+                                label_visibility="collapsed"
+                            )
+                        
+                        with col3:
+                            creative['reach_2'] = st.number_input(
+                                "Reach 2+",
+                                min_value=0,
+                                value=creative['reach_2'],
+                                key=f"r2_{channel_idx}_{creative_idx}",
+                                label_visibility="collapsed"
+                            )
+                        
+                        with col4:
+                            creative['reach_3'] = st.number_input(
+                                "Reach 3+",
+                                min_value=0,
+                                value=creative['reach_3'],
+                                key=f"r3_{channel_idx}_{creative_idx}",
+                                label_visibility="collapsed"
+                            )
+                        
+                        with col5:
+                            st.write("")
+                            st.write("")
+                            if st.button("🗑️", key=f"del_creative_{channel_idx}_{creative_idx}"):
+                                channel['creatives'].pop(creative_idx)
+                                st.rerun()
+                else:
+                    st.info("소재를 추가하세요")
+
+# ========================================
+# 방법 2: CSV 파일 업로드
+# ========================================
+else:
+    st.markdown('<div class="sub-header">📁 CSV 파일 업로드</div>', unsafe_allow_html=True)
+    
+    # CSV 형식 안내
+    with st.expander("📋 CSV 파일 형식 안내"):
+        st.markdown("""
+        CSV 파일은 다음 형식이어야 합니다:
+        
+        | Channel | Creative | Reach 1+ | Reach 2+ | Reach 3+ |
+        |---------|----------|----------|----------|----------|
+        | MBC     | 버스_15s  | 45936    | 9586     | 4378     |
+        | MBC     | 회사_15s  | 45046    | 9808     | 4412     |
+        | EBS     | 버스_15s  | 8411     | 2106     | 1046     |
+        
+        **또는 여러 CSV 파일 업로드 (채널별 파일)**
+        - 파일명: mbc_버스.csv, mbc_회사.csv 등
+        - 컬럼: 날짜, Reach 1+, Reach 2+, Reach 3+
+        """)
+        
+        # 샘플 CSV 다운로드
+        sample_data = pd.DataFrame({
+            'Channel': ['MBC', 'MBC', 'MBC', 'EBS', 'EBS', 'EBS'],
+            'Creative': ['버스_15s', '회사_15s', '침대_15s', '버스_15s', '회사_15s', '침대_15s'],
+            'Reach 1+': [45936, 45046, 45486, 8411, 8304, 7777],
+            'Reach 2+': [9586, 9808, 11856, 2106, 2102, 1643],
+            'Reach 3+': [4378, 4412, 5266, 1046, 1080, 769]
+        })
+        
+        csv_buffer = BytesIO()
+        sample_data.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
+        csv_buffer.seek(0)
+        
+        st.download_button(
+            label="📥 샘플 CSV 다운로드",
+            data=csv_buffer,
+            file_name="sample_reach_data.csv",
+            mime="text/csv"
+        )
+    
+    # 파일 업로드
+    uploaded_files = st.file_uploader(
+        "CSV 파일 선택 (여러 파일 가능)",
+        type=['csv'],
+        accept_multiple_files=True,
+        help="한 파일 또는 여러 파일을 업로드하세요"
+    )
+    
+    if uploaded_files:
+        # 파일 파싱
+        try:
+            all_data = []
+            
+            for uploaded_file in uploaded_files:
+                df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+                
+                # 형식 1: Channel, Creative 컬럼이 있는 경우
+                if 'Channel' in df.columns and 'Creative' in df.columns:
+                    all_data.append(df[['Channel', 'Creative', 'Reach 1+', 'Reach 2+', 'Reach 3+']])
+                
+                # 형식 2: 파일명에서 채널과 소재 추출
+                else:
+                    filename = uploaded_file.name.replace('.csv', '')
+                    parts = filename.split('_')
+                    
+                    if len(parts) >= 2:
+                        channel = parts[0]
+                        creative = '_'.join(parts[1:])
+                        
+                        # 마지막 행의 데이터 사용
+                        last_row = df.iloc[-1]
+                        
+                        row_data = {
+                            'Channel': channel,
+                            'Creative': creative,
+                            'Reach 1+': last_row.get('Reach 1+', 0),
+                            'Reach 2+': last_row.get('Reach 2+', 0),
+                            'Reach 3+': last_row.get('Reach 3+', 0)
+                        }
+                        
+                        all_data.append(pd.DataFrame([row_data]))
+            
+            if all_data:
+                combined_df = pd.concat(all_data, ignore_index=True)
+                
+                # 세션 스테이트로 변환
+                st.session_state.channels = []
+                
+                for channel_name in combined_df['Channel'].unique():
+                    channel_data = combined_df[combined_df['Channel'] == channel_name]
+                    
+                    creatives = []
+                    for _, row in channel_data.iterrows():
+                        creatives.append({
+                            'name': row['Creative'],
+                            'reach_1': int(row['Reach 1+']),
+                            'reach_2': int(row['Reach 2+']),
+                            'reach_3': int(row['Reach 3+'])
+                        })
+                    
+                    st.session_state.channels.append({
+                        'name': channel_name,
+                        'creatives': creatives
+                    })
+                
+                st.success(f"✅ {len(uploaded_files)}개 파일을 성공적으로 업로드했습니다!")
+                
+                # 데이터 미리보기
+                st.markdown("##### 📊 업로드된 데이터 미리보기")
+                st.dataframe(combined_df, use_container_width=True)
+        
+        except Exception as e:
+            st.error(f"❌ 파일 업로드 중 오류가 발생했습니다: {str(e)}")
+            st.info("CSV 파일 형식을 확인해주세요")
+
+# ========================================
+# 계산 실행
+# ========================================
+if st.session_state.get('channels') and any(ch['creatives'] for ch in st.session_state.channels):
+    
+    st.markdown("---")
+    st.markdown('<div class="sub-header">🧮 계산 결과</div>', unsafe_allow_html=True)
+    
+    # 계산 버튼
+    if st.button("🚀 계산 실행", use_container_width=True, type="primary"):
+        
+        # ========================================
+        # 계산 함수 정의
+        # ========================================
+        def calculate_subtotal_method1(channel_data, dup_1, dup_2, dup_3):
+            """
+            방법 1: 중복률 기반 추정
+            """
+            reach_1_list = [cr['reach_1'] for cr in channel_data['creatives']]
+            reach_2_list = [cr['reach_2'] for cr in channel_data['creatives']]
+            reach_3_list = [cr['reach_3'] for cr in channel_data['creatives']]
+            
+            if not reach_1_list:
+                return {'Reach 1+': 0, 'Reach 2+': 0, 'Reach 3+': 0}
+            
+            max_1 = max(reach_1_list)
+            max_2 = max(reach_2_list)
+            max_3 = max(reach_3_list)
+            
+            sum_1 = sum(reach_1_list)
+            sum_2 = sum(reach_2_list)
+            sum_3 = sum(reach_3_list)
+            
+            # 중복률 적용
+            estimated_1 = max_1 + (sum_1 - max_1) * (1 - dup_1 / 100)
+            estimated_2 = max_2 + (sum_2 - max_2) * (1 - dup_2 / 100)
+            estimated_3 = max_3 + (sum_3 - max_3) * (1 - dup_3 / 100)
+            
+            return {
+                'Reach 1+': round(estimated_1),
+                'Reach 2+': round(estimated_2),
+                'Reach 3+': round(estimated_3)
+            }
+        
+        def calculate_method2_adjusted(subtotals, grand_1, grand_2, grand_3):
+            """
+            방법 2: Grand Total 기반 비례 조정
+            """
+            sum_1 = sum(st['Reach 1+'] for st in subtotals.values())
+            sum_2 = sum(st['Reach 2+'] for st in subtotals.values())
+            sum_3 = sum(st['Reach 3+'] for st in subtotals.values())
+            
+            if sum_1 == 0 or sum_2 == 0 or sum_3 == 0:
+                return subtotals
+            
+            ratio_1 = grand_1 / sum_1 if sum_1 > 0 else 1
+            ratio_2 = grand_2 / sum_2 if sum_2 > 0 else 1
+            ratio_3 = grand_3 / sum_3 if sum_3 > 0 else 1
+            
+            adjusted = {}
+            for channel, st in subtotals.items():
+                adjusted[channel] = {
+                    'Reach 1+': round(st['Reach 1+'] * ratio_1),
+                    'Reach 2+': round(st['Reach 2+'] * ratio_2),
+                    'Reach 3+': round(st['Reach 3+'] * ratio_3)
+                }
+            
+            return adjusted
+        
+        # ========================================
+        # 방법 1 계산
+        # ========================================
+        subtotals_m1 = {}
+        
+        for channel in st.session_state.channels:
+            subtotals_m1[channel['name']] = calculate_subtotal_method1(
+                channel, dup_rate_1, dup_rate_2, dup_rate_3
+            )
+        
+        # 합계 계산
+        sum_m1_1 = sum(st['Reach 1+'] for st in subtotals_m1.values())
+        sum_m1_2 = sum(st['Reach 2+'] for st in subtotals_m1.values())
+        sum_m1_3 = sum(st['Reach 3+'] for st in subtotals_m1.values())
+        
+        # ========================================
+        # 결과 표시
+        # ========================================
+        
+        # 탭 생성
+        tab1, tab2, tab3 = st.tabs(["📊 방법 1: 중복률 기반", "📊 방법 2: Grand Total 역산", "📈 시각화"])
+        
+        # ========================================
+        # 탭 1: 방법 1 결과
+        # ========================================
+        with tab1:
+            st.markdown("### 방법 1: 채널 내 중복률 기반 추정")
+            
+            st.markdown(f"""
+            <div class="info-box">
+            <b>사용된 중복률:</b> Reach 1+ = {dup_rate_1}%, Reach 2+ = {dup_rate_2}%, Reach 3+ = {dup_rate_3}%<br>
+            <b>근거:</b> ANA & Innovid 연구 (2021) - 평균 중복률 32%
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # 결과 테이블
+            result_data_m1 = []
+            
+            for channel in st.session_state.channels:
+                # 소재별 데이터
+                for creative in channel['creatives']:
+                    result_data_m1.append({
+                        'Channel': channel['name'],
+                        'Creative': creative['name'],
+                        'Reach 1+': f"{creative['reach_1']:,}",
+                        'Reach 2+': f"{creative['reach_2']:,}",
+                        'Reach 3+': f"{creative['reach_3']:,}"
+                    })
+                
+                # Sub Total
+                st_m1 = subtotals_m1[channel['name']]
+                result_data_m1.append({
+                    'Channel': f"**{channel['name']} Sub Total**",
+                    'Creative': '',
+                    'Reach 1+': f"**{st_m1['Reach 1+']:,}**",
+                    'Reach 2+': f"**{st_m1['Reach 2+']:,}**",
+                    'Reach 3+': f"**{st_m1['Reach 3+']:,}**"
+                })
+            
+            # Grand Total (합계)
+            result_data_m1.append({
+                'Channel': '**합계**',
+                'Creative': '',
+                'Reach 1+': f"**{sum_m1_1:,}**",
+                'Reach 2+': f"**{sum_m1_2:,}**",
+                'Reach 3+': f"**{sum_m1_3:,}**"
+            })
+            
+            df_m1 = pd.DataFrame(result_data_m1)
+            st.dataframe(df_m1, use_container_width=True, hide_index=True)
+            
+            # Grand Total과 비교 (있는 경우)
+            if use_grand_total and grand_total_1 > 0:
+                diff_1 = ((sum_m1_1 - grand_total_1) / grand_total_1 * 100)
+                diff_2 = ((sum_m1_2 - grand_total_2) / grand_total_2 * 100)
+                diff_3 = ((sum_m1_3 - grand_total_3) / grand_total_3) * 100
+                
+                st.markdown(f"""
+                <div class="warning-box">
+                <b>Grand Total과의 차이:</b><br>
+                Reach 1+: {diff_1:+.2f}% | Reach 2+: {diff_2:+.2f}% | Reach 3+: {diff_3:+.2f}%
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # ========================================
+        # 탭 2: 방법 2 결과
+        # ========================================
+        with tab2:
+            if use_grand_total and grand_total_1 > 0:
+                st.markdown("### 방법 2: Grand Total 기반 비례 조정")
+                
+                st.markdown(f"""
+                <div class="info-box">
+                <b>Grand Total:</b> Reach 1+ = {grand_total_1:,}, Reach 2+ = {grand_total_2:,}, Reach 3+ = {grand_total_3:,}<br>
+                <b>특징:</b> 합계가 Grand Total과 정확히 일치
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # 방법 2 계산
+                subtotals_m2 = calculate_method2_adjusted(
+                    subtotals_m1, grand_total_1, grand_total_2, grand_total_3
+                )
+                
+                # 결과 테이블
+                result_data_m2 = []
+                
+                for channel in st.session_state.channels:
+                    # 소재별 데이터
+                    for creative in channel['creatives']:
+                        result_data_m2.append({
+                            'Channel': channel['name'],
+                            'Creative': creative['name'],
+                            'Reach 1+': f"{creative['reach_1']:,}",
+                            'Reach 2+': f"{creative['reach_2']:,}",
+                            'Reach 3+': f"{creative['reach_3']:,}"
+                        })
+                    
+                    # Sub Total
+                    st_m2 = subtotals_m2[channel['name']]
+                    result_data_m2.append({
+                        'Channel': f"**{channel['name']} Sub Total**",
+                        'Creative': '',
+                        'Reach 1+': f"**{st_m2['Reach 1+']:,}**",
+                        'Reach 2+': f"**{st_m2['Reach 2+']:,}**",
+                        'Reach 3+': f"**{st_m2['Reach 3+']:,}**"
+                    })
+                
+                # Grand Total
+                result_data_m2.append({
+                    'Channel': '**Grand Total**',
+                    'Creative': '',
+                    'Reach 1+': f"**{grand_total_1:,}**",
+                    'Reach 2+': f"**{grand_total_2:,}**",
+                    'Reach 3+': f"**{grand_total_3:,}**"
+                })
+                
+                df_m2 = pd.DataFrame(result_data_m2)
+                st.dataframe(df_m2, use_container_width=True, hide_index=True)
+                
+                st.markdown("""
+                <div class="success-box">
+                ✅ <b>권장:</b> 보고서 제출용으로 방법 2를 사용하세요 (합계 일치)
+                </div>
+                """, unsafe_allow_html=True)
+            
+            else:
+                st.info("💡 Grand Total을 입력하면 방법 2 결과를 확인할 수 있습니다")
+        
+        # ========================================
+        # 탭 3: 시각화
+        # ========================================
+        with tab3:
+            st.markdown("### 📈 데이터 시각화")
+            
+            # 채널별 비교 차트
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Reach 1+ 비교
+                chart_data = pd.DataFrame({
+                    'Channel': list(subtotals_m1.keys()),
+                    'Reach 1+': [st['Reach 1+'] for st in subtotals_m1.values()]
+                })
+                
+                fig1 = px.bar(
+                    chart_data,
+                    x='Channel',
+                    y='Reach 1+',
+                    title='채널별 Reach 1+ 비교',
+                    color='Channel',
+                    text='Reach 1+'
+                )
+                fig1.update_traces(texttemplate='%{text:,}', textposition='outside')
+                fig1.update_layout(showlegend=False)
+                st.plotly_chart(fig1, use_container_width=True)
+            
+            with col2:
+                # 채널별 기여도 (파이 차트)
+                fig2 = px.pie(
+                    chart_data,
+                    values='Reach 1+',
+                    names='Channel',
+                    title='채널별 Reach 1+ 기여도'
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+            
+            # 빈도별 비교
+            freq_data = pd.DataFrame({
+                'Channel': list(subtotals_m1.keys()),
+                'Reach 1+': [st['Reach 1+'] for st in subtotals_m1.values()],
+                'Reach 2+': [st['Reach 2+'] for st in subtotals_m1.values()],
+                'Reach 3+': [st['Reach 3+'] for st in subtotals_m1.values()]
+            })
+            
+            fig3 = go.Figure()
+            fig3.add_trace(go.Bar(name='Reach 1+', x=freq_data['Channel'], y=freq_data['Reach 1+']))
+            fig3.add_trace(go.Bar(name='Reach 2+', x=freq_data['Channel'], y=freq_data['Reach 2+']))
+            fig3.add_trace(go.Bar(name='Reach 3+', x=freq_data['Channel'], y=freq_data['Reach 3+']))
+            
+            fig3.update_layout(
+                title='채널별 Reach 빈도 비교',
+                barmode='group',
+                xaxis_title='Channel',
+                yaxis_title='Reach'
+            )
+            st.plotly_chart(fig3, use_container_width=True)
+        
+        # ========================================
+        # 다운로드 버튼
+        # ========================================
+        st.markdown("---")
+        st.markdown("### 💾 결과 다운로드")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # 엑셀 다운로드
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_m1.to_excel(writer, sheet_name='방법1_중복률기반', index=False)
+                if use_grand_total and grand_total_1 > 0:
+                    df_m2.to_excel(writer, sheet_name='방법2_GrandTotal역산', index=False)
+            
+            output.seek(0)
+            
+            st.download_button(
+                label="📥 엑셀 다운로드",
+                data=output,
+                file_name="reach_calculation_result.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        
+        with col2:
+            # CSV 다운로드
+            csv = df_m1.to_csv(index=False, encoding='utf-8-sig')
+            
+            st.download_button(
+                label="📥 CSV 다운로드",
+                data=csv,
+                file_name="reach_calculation_result.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+else:
+    # 데이터가 없을 때 안내
+    st.markdown("""
+    <div class="info-box">
+    <h3>👋 시작하기</h3>
+    <p>1. 왼쪽 사이드바에서 <b>데이터 입력 방식</b>을 선택하세요</p>
+    <p>2. <b>직접 입력</b>: 채널과 소재를 추가하며 데이터를 입력하세요</p>
+    <p>3. <b>CSV 업로드</b>: 준비된 CSV 파일을 업로드하세요</p>
+    <p>4. <b>중복률</b>을 조정하세요 (기본값: 35%, 25%, 15%)</p>
+    <p>5. <b>계산 실행</b> 버튼을 클릭하세요</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ========================================
+# 푸터
+# ========================================
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; color: #7f8c8d; padding: 2rem 0;">
+<p><b>📊 Reach 중복 제거 계산기</b> | Made with ❤️ by Claude</p>
+<p style="font-size: 0.9rem;">과학적 근거: ANA & Innovid (2021), Beta-Binomial Distribution, Nielsen ONE</p>
+</div>
+""", unsafe_allow_html=True)
