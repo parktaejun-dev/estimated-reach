@@ -379,11 +379,22 @@ else:
                     
                     creatives = []
                     for _, row in channel_data.iterrows():
+                        # 쉼표를 제거하고 숫자로 변환하는 헬퍼 함수
+                        def parse_number(value):
+                            if pd.isna(value):
+                                return 0
+                            # 문자열로 변환 후 쉼표 제거
+                            str_value = str(value).replace(',', '').strip()
+                            try:
+                                return int(float(str_value))
+                            except (ValueError, TypeError):
+                                return 0
+
                         creatives.append({
                             'name': row['Creative'],
-                            'reach_1': int(row['Reach 1+']),
-                            'reach_2': int(row['Reach 2+']),
-                            'reach_3': int(row['Reach 3+'])
+                            'reach_1': parse_number(row['Reach 1+']),
+                            'reach_2': parse_number(row['Reach 2+']),
+                            'reach_3': parse_number(row['Reach 3+'])
                         })
                     
                     st.session_state.channels.append({
