@@ -476,9 +476,11 @@ else:
 
         ---
 
-        **⚠️ 중요: 전체 합산 파일과 개별 파일을 함께 업로드하지 마세요!**
-        - 전체 합산 파일(total)만 업로드 **또는**
+        **💡 팁: 두 가지 방법을 자유롭게 선택하거나 혼용 가능**
+        - 전체 합산 파일만 업로드
         - 개별 파일들만 업로드
+        - 전체 합산 + 개별 파일(추가 채널/소재) 함께 업로드
+        - **중복된 채널-소재는 자동으로 병합됩니다** (마지막 행 데이터 사용)
         """)
         
         # 샘플 CSV 다운로드
@@ -512,70 +514,73 @@ else:
     if uploaded_files:
         # 파일 파싱
         try:
-            # total 파일과 개별 파일 구분
+            # 파일 분류
             total_files = [f for f in uploaded_files if 'total' in f.name.lower()]
             individual_files = [f for f in uploaded_files if 'total' not in f.name.lower()]
 
             all_data = []
-            upload_type = None
+            file_count = {'total': 0, 'individual': 0}
 
-            # 전체 합산 파일이 있는 경우
-            if total_files:
-                if individual_files:
-                    st.warning("⚠️ 전체 합산 파일(total)과 개별 파일이 함께 감지되었습니다. 전체 합산 파일만 사용합니다.")
+            # 전체 합산 파일 처리
+            for uploaded_file in total_files:
+                df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
 
-                upload_type = "total"
-                for uploaded_file in total_files:
-                    df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+                # Channel, Creative 컬럼이 있어야 함
+                if 'Channel' in df.columns and 'Creative' in df.columns:
+                    all_data.append(df[['Channel', 'Creative', 'Reach 1+', 'Reach 2+', 'Reach 3+']])
+                    file_count['total'] += 1
+                else:
+                    st.error(f"❌ {uploaded_file.name}: 전체 합산 파일에는 'Channel', 'Creative' 컬럼이 필요합니다.")
+                    st.stop()
 
-                    # Channel, Creative 컬럼이 있어야 함
-                    if 'Channel' in df.columns and 'Creative' in df.columns:
-                        all_data.append(df[['Channel', 'Creative', 'Reach 1+', 'Reach 2+', 'Reach 3+']])
-                    else:
-                        st.error(f"❌ {uploaded_file.name}: 전체 합산 파일에는 'Channel', 'Creative' 컬럼이 필요합니다.")
-                        st.stop()
+            # 개별 파일 처리
+            for uploaded_file in individual_files:
+                df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
 
-            # 개별 파일만 있는 경우
-            elif individual_files:
-                upload_type = "individual"
-                for uploaded_file in individual_files:
-                    df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+                # 파일명에서 채널과 소재 추출 (형식: 채널명-소재명.csv)
+                filename = uploaded_file.name.replace('.csv', '')
 
-                    # 파일명에서 채널과 소재 추출 (형식: 채널명-소재명.csv)
-                    filename = uploaded_file.name.replace('.csv', '')
+                # '-' 또는 '_'로 구분 시도
+                if '-' in filename:
+                    parts = filename.split('-', 1)
+                elif '_' in filename:
+                    parts = filename.split('_', 1)
+                else:
+                    st.error(f"❌ {uploaded_file.name}: 파일명이 '채널명-소재명.csv' 형식이 아닙니다.")
+                    st.stop()
 
-                    # '-' 또는 '_'로 구분 시도
-                    if '-' in filename:
-                        parts = filename.split('-', 1)
-                    elif '_' in filename:
-                        parts = filename.split('_', 1)
-                    else:
-                        st.error(f"❌ {uploaded_file.name}: 파일명이 '채널명-소재명.csv' 형식이 아닙니다.")
-                        st.stop()
+                if len(parts) >= 2:
+                    channel = parts[0].strip()
+                    creative = parts[1].strip()
 
-                    if len(parts) >= 2:
-                        channel = parts[0].strip()
-                        creative = parts[1].strip()
+                    # 마지막 행의 데이터 사용
+                    last_row = df.iloc[-1]
 
-                        # 마지막 행의 데이터 사용
-                        last_row = df.iloc[-1]
+                    row_data = {
+                        'Channel': channel,
+                        'Creative': creative,
+                        'Reach 1+': last_row.get('Reach 1+', 0),
+                        'Reach 2+': last_row.get('Reach 2+', 0),
+                        'Reach 3+': last_row.get('Reach 3+', 0)
+                    }
 
-                        row_data = {
-                            'Channel': channel,
-                            'Creative': creative,
-                            'Reach 1+': last_row.get('Reach 1+', 0),
-                            'Reach 2+': last_row.get('Reach 2+', 0),
-                            'Reach 3+': last_row.get('Reach 3+', 0)
-                        }
-
-                        all_data.append(pd.DataFrame([row_data]))
-                    else:
-                        st.error(f"❌ {uploaded_file.name}: 파일명 형식이 올바르지 않습니다.")
-                        st.stop()
+                    all_data.append(pd.DataFrame([row_data]))
+                    file_count['individual'] += 1
+                else:
+                    st.error(f"❌ {uploaded_file.name}: 파일명 형식이 올바르지 않습니다.")
+                    st.stop()
             
             if all_data:
                 combined_df = pd.concat(all_data, ignore_index=True)
-                
+
+                # 중복된 Channel-Creative 조합 처리 (마지막 값 사용)
+                original_count = len(combined_df)
+                combined_df = combined_df.drop_duplicates(subset=['Channel', 'Creative'], keep='last')
+                duplicates_removed = original_count - len(combined_df)
+
+                if duplicates_removed > 0:
+                    st.info(f"ℹ️ 중복된 채널-소재 조합 {duplicates_removed}개를 자동으로 병합했습니다 (마지막 값 사용)")
+
                 # 세션 스테이트로 변환
                 st.session_state.channels = []
                 
@@ -607,10 +612,14 @@ else:
                         'creatives': creatives
                     })
                 
-                if upload_type == "total":
-                    st.success(f"✅ 전체 합산 파일 {len(total_files)}개를 성공적으로 업로드했습니다!")
-                else:
-                    st.success(f"✅ 개별 파일 {len(individual_files)}개를 성공적으로 업로드했습니다!")
+                # 성공 메시지
+                upload_summary = []
+                if file_count['total'] > 0:
+                    upload_summary.append(f"전체 합산 파일 {file_count['total']}개")
+                if file_count['individual'] > 0:
+                    upload_summary.append(f"개별 파일 {file_count['individual']}개")
+
+                st.success(f"✅ {', '.join(upload_summary)}를 성공적으로 업로드했습니다! (총 {len(combined_df)}개 채널-소재)")
                 
                 # 데이터 미리보기
                 st.markdown("##### 📊 업로드된 데이터 미리보기")
