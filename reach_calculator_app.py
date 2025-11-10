@@ -22,44 +22,86 @@ st.set_page_config(
 )
 
 # ========================================
-# CSS 스타일링 (예쁘게 만들기)
+# CSS 스타일링 (밝은 테마)
 # ========================================
 st.markdown("""
 <style>
+    /* 전체 배경을 밝게 */
+    .main {
+        background-color: #ffffff;
+    }
+
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
-        color: #1f77b4;
+        color: #2563eb;
         text-align: center;
         margin-bottom: 2rem;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
+
     .sub-header {
         font-size: 1.5rem;
         font-weight: bold;
-        color: #2c3e50;
+        color: #1e40af;
         margin-top: 2rem;
         margin-bottom: 1rem;
     }
+
     .info-box {
-        background-color: #e3f2fd;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #1f77b4;
+        background: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 100%);
+        padding: 1.5rem;
+        border-radius: 0.75rem;
+        border-left: 5px solid #3b82f6;
         margin: 1rem 0;
+        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
     }
+
     .success-box {
-        background-color: #e8f5e9;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #4caf50;
+        background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+        padding: 1.5rem;
+        border-radius: 0.75rem;
+        border-left: 5px solid #10b981;
         margin: 1rem 0;
+        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
     }
+
     .warning-box {
-        background-color: #fff3e0;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #ff9800;
+        background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+        padding: 1.5rem;
+        border-radius: 0.75rem;
+        border-left: 5px solid #f59e0b;
         margin: 1rem 0;
+        box-shadow: 0 2px 8px rgba(245, 158, 11, 0.15);
+    }
+
+    /* 버튼 스타일 */
+    .stButton > button {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+        border: none;
+        border-radius: 0.5rem;
+        padding: 0.5rem 1rem;
+        font-weight: 600;
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+        transition: all 0.3s ease;
+    }
+
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+    }
+
+    /* 사이드바 */
+    .css-1d391kg {
+        background-color: #f8fafc;
+    }
+
+    /* 데이터프레임 */
+    .dataframe {
+        border-radius: 0.5rem;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -291,19 +333,37 @@ else:
     st.markdown('<div class="sub-header">📁 CSV 파일 업로드</div>', unsafe_allow_html=True)
     
     # CSV 형식 안내
-    with st.expander("📋 CSV 파일 형식 안내"):
+    with st.expander("📋 CSV 파일 형식 안내 (필독!)"):
         st.markdown("""
-        CSV 파일은 다음 형식이어야 합니다:
-        
+        ### 📁 파일 업로드 방법
+
+        **방법 1: 전체 합산 파일 업로드 (권장)**
+        - 파일명에 **'total'** 포함 필수 (예: `total.csv`, `reach_total.csv`)
+        - 모든 채널과 소재가 포함된 합산 파일
+
         | Channel | Creative | Reach 1+ | Reach 2+ | Reach 3+ |
         |---------|----------|----------|----------|----------|
         | MBC     | 버스_15s  | 45936    | 9586     | 4378     |
         | MBC     | 회사_15s  | 45046    | 9808     | 4412     |
         | EBS     | 버스_15s  | 8411     | 2106     | 1046     |
-        
-        **또는 여러 CSV 파일 업로드 (채널별 파일)**
-        - 파일명: mbc_버스.csv, mbc_회사.csv 등
-        - 컬럼: 날짜, Reach 1+, Reach 2+, Reach 3+
+
+        ---
+
+        **방법 2: 개별 파일 업로드 (채널-소재별)**
+        - 파일명 형식: **채널명-소재명.csv** (예: `MBC-버스_15s.csv`, `EBS-회사_15s.csv`)
+        - 각 파일은 해당 소재의 일별 데이터 포함
+        - 마지막 행의 데이터를 사용합니다
+
+        | 날짜 | Reach 1+ | Reach 2+ | Reach 3+ |
+        |------|----------|----------|----------|
+        | 2024-01-01 | 15000 | 3000 | 1000 |
+        | 2024-01-02 | 45936 | 9586 | 4378 |
+
+        ---
+
+        **⚠️ 중요: 전체 합산 파일과 개별 파일을 함께 업로드하지 마세요!**
+        - 전체 합산 파일(total)만 업로드 **또는**
+        - 개별 파일들만 업로드
         """)
         
         # 샘플 CSV 다운로드
@@ -337,27 +397,54 @@ else:
     if uploaded_files:
         # 파일 파싱
         try:
+            # total 파일과 개별 파일 구분
+            total_files = [f for f in uploaded_files if 'total' in f.name.lower()]
+            individual_files = [f for f in uploaded_files if 'total' not in f.name.lower()]
+
             all_data = []
-            
-            for uploaded_file in uploaded_files:
-                df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
-                
-                # 형식 1: Channel, Creative 컬럼이 있는 경우
-                if 'Channel' in df.columns and 'Creative' in df.columns:
-                    all_data.append(df[['Channel', 'Creative', 'Reach 1+', 'Reach 2+', 'Reach 3+']])
-                
-                # 형식 2: 파일명에서 채널과 소재 추출
-                else:
+            upload_type = None
+
+            # 전체 합산 파일이 있는 경우
+            if total_files:
+                if individual_files:
+                    st.warning("⚠️ 전체 합산 파일(total)과 개별 파일이 함께 감지되었습니다. 전체 합산 파일만 사용합니다.")
+
+                upload_type = "total"
+                for uploaded_file in total_files:
+                    df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+
+                    # Channel, Creative 컬럼이 있어야 함
+                    if 'Channel' in df.columns and 'Creative' in df.columns:
+                        all_data.append(df[['Channel', 'Creative', 'Reach 1+', 'Reach 2+', 'Reach 3+']])
+                    else:
+                        st.error(f"❌ {uploaded_file.name}: 전체 합산 파일에는 'Channel', 'Creative' 컬럼이 필요합니다.")
+                        st.stop()
+
+            # 개별 파일만 있는 경우
+            elif individual_files:
+                upload_type = "individual"
+                for uploaded_file in individual_files:
+                    df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+
+                    # 파일명에서 채널과 소재 추출 (형식: 채널명-소재명.csv)
                     filename = uploaded_file.name.replace('.csv', '')
-                    parts = filename.split('_')
-                    
+
+                    # '-' 또는 '_'로 구분 시도
+                    if '-' in filename:
+                        parts = filename.split('-', 1)
+                    elif '_' in filename:
+                        parts = filename.split('_', 1)
+                    else:
+                        st.error(f"❌ {uploaded_file.name}: 파일명이 '채널명-소재명.csv' 형식이 아닙니다.")
+                        st.stop()
+
                     if len(parts) >= 2:
-                        channel = parts[0]
-                        creative = '_'.join(parts[1:])
-                        
+                        channel = parts[0].strip()
+                        creative = parts[1].strip()
+
                         # 마지막 행의 데이터 사용
                         last_row = df.iloc[-1]
-                        
+
                         row_data = {
                             'Channel': channel,
                             'Creative': creative,
@@ -365,8 +452,11 @@ else:
                             'Reach 2+': last_row.get('Reach 2+', 0),
                             'Reach 3+': last_row.get('Reach 3+', 0)
                         }
-                        
+
                         all_data.append(pd.DataFrame([row_data]))
+                    else:
+                        st.error(f"❌ {uploaded_file.name}: 파일명 형식이 올바르지 않습니다.")
+                        st.stop()
             
             if all_data:
                 combined_df = pd.concat(all_data, ignore_index=True)
@@ -402,7 +492,10 @@ else:
                         'creatives': creatives
                     })
                 
-                st.success(f"✅ {len(uploaded_files)}개 파일을 성공적으로 업로드했습니다!")
+                if upload_type == "total":
+                    st.success(f"✅ 전체 합산 파일 {len(total_files)}개를 성공적으로 업로드했습니다!")
+                else:
+                    st.success(f"✅ 개별 파일 {len(individual_files)}개를 성공적으로 업로드했습니다!")
                 
                 # 데이터 미리보기
                 st.markdown("##### 📊 업로드된 데이터 미리보기")
@@ -744,8 +837,8 @@ else:
 # ========================================
 st.markdown("---")
 st.markdown("""
-<div style="text-align: center; color: #7f8c8d; padding: 2rem 0;">
-<p><b>📊 Reach 중복 제거 계산기</b> | Made with ❤️ by Claude</p>
-<p style="font-size: 0.9rem;">과학적 근거: ANA & Innovid (2021), Beta-Binomial Distribution, Nielsen ONE</p>
+<div style="text-align: center; color: #64748b; padding: 2rem 0; background: linear-gradient(135deg, #f8fafc 0%, #e0f2fe 100%); border-radius: 0.75rem; margin-top: 2rem;">
+<p style="font-size: 1.1rem; font-weight: 600; color: #1e40af;"><b>📊 Reach 중복 제거 계산기</b> | Made with ❤️ by Claude</p>
+<p style="font-size: 0.9rem; color: #475569;">과학적 근거: ANA & Innovid (2021), Beta-Binomial Distribution, Nielsen ONE</p>
 </div>
 """, unsafe_allow_html=True)
